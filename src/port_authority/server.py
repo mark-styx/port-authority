@@ -1,13 +1,11 @@
 """HTTP API server for port-authority."""
 
 from contextlib import asynccontextmanager
-from typing import Optional
 
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
 from port_authority import db
-
 
 _conn = None
 
@@ -20,7 +18,7 @@ def get_conn():
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(_app: FastAPI):
     global _conn
     _conn = db.get_connection()
     yield
@@ -42,7 +40,7 @@ class AssignRequest(BaseModel):
     allocation_type: str = "persistent"
     lan_exposed: bool = False
     description: str = ""
-    preferred_port: Optional[int] = None
+    preferred_port: int | None = None
 
 
 class AssignResponse(BaseModel):
@@ -86,9 +84,9 @@ def assign_port(req: AssignRequest):
         )
         return _row_to_response(row)
     except db.PortConflictError as e:
-        raise HTTPException(status_code=409, detail=str(e))
+        raise HTTPException(status_code=409, detail=str(e)) from None
     except db.NoPortAvailableError as e:
-        raise HTTPException(status_code=503, detail=str(e))
+        raise HTTPException(status_code=503, detail=str(e)) from None
 
 
 @app.delete("/release/{project}")

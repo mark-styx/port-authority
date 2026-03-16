@@ -2,7 +2,7 @@
 
 import json
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import click
 import httpx
@@ -13,7 +13,7 @@ DEFAULT_SERVER_URL = "http://127.0.0.1:7600"
 
 
 def _format_time(ts: float) -> str:
-    return datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%Y-%m-%d %H:%M")
+    return datetime.fromtimestamp(ts, tz=UTC).strftime("%Y-%m-%d %H:%M")
 
 
 def _client(server_url: str) -> httpx.Client:
@@ -35,6 +35,7 @@ def cli(ctx, server):
 def serve(host, port):
     """Start the port-authority server."""
     import uvicorn
+
     from port_authority.server import app
 
     click.echo(f"Port Authority listening on {host}:{port}")

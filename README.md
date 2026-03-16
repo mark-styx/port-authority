@@ -1,12 +1,19 @@
 # Port Authority
 
+[![CI](https://github.com/mark-styx/port-authority/workflows/CI/badge.svg)](https://github.com/mark-styx/port-authority/actions)
+[![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Code style: ruff](https://img.shields.io/badge/code%20style-ruff-000000.svg)](https://github.com/astral-sh/ruff)
+
 Local port assignment manager for development services. Prevents port collisions across multiple projects, supports persistent assignments for LAN-exposed services, and ephemeral assignments for temporary testing.
 
 ## Install
 
 ```bash
-cd /Users/mark/sentinel/port-authority
-pip install -e ".[dev]"
+pip install port-authority
+
+# Or with dev dependencies
+pip install port-authority[dev]
 ```
 
 ## Quick Start

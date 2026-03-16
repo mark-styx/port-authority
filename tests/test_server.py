@@ -7,7 +7,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from port_authority import db
-from port_authority.server import app, get_conn
+from port_authority.server import app
 
 
 @pytest.fixture(autouse=True)

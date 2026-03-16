@@ -3,7 +3,6 @@
 import sqlite3
 import time
 from pathlib import Path
-from typing import Optional
 
 DEFAULT_DB_PATH = Path.home() / ".config" / "port-authority" / "ports.db"
 DEFAULT_PORT_MIN = 8000
@@ -14,7 +13,7 @@ def get_db_path() -> Path:
     return DEFAULT_DB_PATH
 
 
-def get_connection(db_path: Optional[Path] = None) -> sqlite3.Connection:
+def get_connection(db_path: Path | None = None) -> sqlite3.Connection:
     path = db_path or get_db_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(path), check_same_thread=False)
@@ -73,7 +72,7 @@ def set_port_range(conn: sqlite3.Connection, port_min: int, port_max: int) -> No
     set_config(conn, "port_max", str(port_max))
 
 
-def find_next_available_port(conn: sqlite3.Connection) -> Optional[int]:
+def find_next_available_port(conn: sqlite3.Connection) -> int | None:
     port_min, port_max = get_port_range(conn)
     used = {
         row["port"]
@@ -91,7 +90,7 @@ def assign_port(
     allocation_type: str = "persistent",
     lan_exposed: bool = False,
     description: str = "",
-    preferred_port: Optional[int] = None,
+    preferred_port: int | None = None,
 ) -> dict:
     """Assign a port to a project. Returns existing assignment if project already has one."""
     now = time.time()
@@ -117,11 +116,12 @@ def assign_port(
             raise PortConflictError(
                 f"Port {preferred_port} already assigned to '{conflict['project']}'"
             )
-        port = preferred_port
+        port: int = preferred_port
     else:
-        port = find_next_available_port(conn)
-        if port is None:
+        next_port = find_next_available_port(conn)
+        if next_port is None:
             raise NoPortAvailableError("No ports available in configured range")
+        port = next_port
 
     conn.execute(
         """INSERT INTO assignments (project, port, allocation_type, lan_exposed, description, created_at, last_seen_at)
@@ -148,14 +148,14 @@ def list_assignments(conn: sqlite3.Connection) -> list[dict]:
     return [dict(r) for r in rows]
 
 
-def get_assignment(conn: sqlite3.Connection, project: str) -> Optional[dict]:
+def get_assignment(conn: sqlite3.Connection, project: str) -> dict | None:
     row = conn.execute(
         "SELECT * FROM assignments WHERE project = ?", (project,)
     ).fetchone()
     return dict(row) if row else None
 
 
-def get_assignment_by_port(conn: sqlite3.Connection, port: int) -> Optional[dict]:
+def get_assignment_by_port(conn: sqlite3.Connection, port: int) -> dict | None:
     row = conn.execute(
         "SELECT * FROM assignments WHERE port = ?", (port,)
     ).fetchone()
