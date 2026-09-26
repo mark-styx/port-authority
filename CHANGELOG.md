@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Port scanning: in-use ports without an assignment get temporary holds
+  (`pa scan`, `pa holds`, `pa unhold`, `POST /scan`, `GET/DELETE /holds`)
+- Allocation probes each candidate port and never hands out one that is in use
+- Background rescans in `pa serve` (`--scan-interval`, default 60s)
+- Hold TTL, configurable via `GET/PUT /hold-ttl` (default 1 hour)
+- Optional `scan` extra (psutil) to name the process holding a port
 - Initial public release
 - Port assignment with persistent and ephemeral allocation types
 - LAN-exposed service tracking

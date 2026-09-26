@@ -18,6 +18,7 @@ def _use_temp_db(monkeypatch):
     conn = db.get_connection(path)
 
     import port_authority.server as srv
+
     monkeypatch.setattr(srv, "_conn", conn)
 
     yield
@@ -122,3 +123,43 @@ def test_port_range_validation(client):
 def test_lan_exposed(client):
     resp = client.post("/assign", json={"project": "home-server", "lan_exposed": True})
     assert resp.json()["lan_exposed"] is True
+
+
+def test_scan_and_holds(client, in_use):
+    in_use[8000] = "redis (pid 6)"
+    resp = client.post("/scan")
+    assert resp.status_code == 200
+    assert resp.json() == [
+        {"port": 8000, "status": "held", "project": None, "process": "redis (pid 6)"}
+    ]
+
+    holds = client.get("/holds").json()
+    assert [h["port"] for h in holds] == [8000]
+
+    resp = client.post("/assign", json={"project": "web-app"})
+    assert resp.json()["port"] == 8001
+
+    resp = client.get("/port/8000")
+    assert resp.status_code == 404
+    assert "held" in resp.json()["detail"]
+
+
+def test_assign_preferred_port_in_use(client, in_use):
+    in_use[9090] = ""
+    resp = client.post("/assign", json={"project": "api", "preferred_port": 9090})
+    assert resp.status_code == 409
+
+
+def test_release_hold(client):
+    import port_authority.server as srv
+
+    db.hold_port(srv._conn, 8000)
+    assert client.delete("/holds/8000").status_code == 200
+    assert client.delete("/holds/8000").status_code == 404
+
+
+def test_hold_ttl(client):
+    assert client.get("/hold-ttl").json()["hold_ttl"] == db.DEFAULT_HOLD_TTL
+    assert client.put("/hold-ttl", json={"hold_ttl": 120}).status_code == 200
+    assert client.get("/hold-ttl").json()["hold_ttl"] == 120
+    assert client.put("/hold-ttl", json={"hold_ttl": 0}).status_code == 400

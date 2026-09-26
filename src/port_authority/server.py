@@ -1,5 +1,8 @@
 """HTTP API server for port-authority."""
 
+import asyncio
+import contextlib
+import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException
@@ -8,6 +11,11 @@ from pydantic import BaseModel
 from port_authority import db
 
 _conn = None
+
+# Seconds between background scans of the managed range; 0 disables. Set by `pa serve`.
+scan_interval = 60
+
+log = logging.getLogger("port_authority")
 
 
 def get_conn():
@@ -21,10 +29,30 @@ def get_conn():
 async def lifespan(_app: FastAPI):
     global _conn
     _conn = db.get_connection()
+    task = asyncio.create_task(_scan_loop()) if scan_interval > 0 else None
     yield
+    if task:
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
     if _conn:
         _conn.close()
         _conn = None
+
+
+# Seconds between background scans of the managed range; 0 disables. Set by `pa serve`.
+scan_interval = 60
+
+log = logging.getLogger("port_authority")
+
+
+async def _scan_loop():
+    while True:
+        try:
+            await asyncio.to_thread(db.scan_ports, get_conn())
+        except Exception:
+            log.exception("Port scan failed")
+        await asyncio.sleep(scan_interval)
 
 
 app = FastAPI(
@@ -51,6 +79,25 @@ class AssignResponse(BaseModel):
     description: str
     created_at: float
     last_seen_at: float
+
+
+class HoldResponse(BaseModel):
+    port: int
+    process: str
+    created_at: float
+    last_seen_at: float
+    expires_at: float
+
+
+class ScanEntry(BaseModel):
+    port: int
+    status: str
+    project: str | None
+    process: str
+
+
+class HoldTtlRequest(BaseModel):
+    hold_ttl: int
 
 
 class PortRangeRequest(BaseModel):
@@ -119,6 +166,12 @@ def lookup_port(port: int):
     """Check what project is assigned to a specific port."""
     row = db.get_assignment_by_port(get_conn(), port)
     if not row:
+        hold = db.get_hold(get_conn(), port)
+        if hold:
+            owner = f" by {hold['process']}" if hold["process"] else ""
+            raise HTTPException(
+                status_code=404, detail=f"Port {port} is not assigned (held: in use{owner})"
+            )
         raise HTTPException(status_code=404, detail=f"Port {port} is not assigned")
     return _row_to_response(row)
 
@@ -148,6 +201,41 @@ def set_range(req: PortRangeRequest):
         raise HTTPException(status_code=400, detail="port_min must be >= 1024 (non-privileged)")
     db.set_port_range(get_conn(), req.port_min, req.port_max)
     return {"port_min": req.port_min, "port_max": req.port_max}
+
+
+@app.post("/scan", response_model=list[ScanEntry])
+def scan():
+    """Scan the managed range and hold any in-use ports that aren't assigned."""
+    return db.scan_ports(get_conn())
+
+
+@app.get("/holds", response_model=list[HoldResponse])
+def list_holds():
+    """List temporary holds on ports found in use outside port-authority."""
+    return db.list_holds(get_conn())
+
+
+@app.delete("/holds/{port}")
+def release_hold(port: int):
+    """Drop a temporary hold. It will come back on the next scan if the port is still in use."""
+    if not db.release_hold(get_conn(), port):
+        raise HTTPException(status_code=404, detail=f"No hold on port {port}")
+    return {"status": "released", "port": port}
+
+
+@app.get("/hold-ttl")
+def get_hold_ttl():
+    """Get how long (seconds) a hold lasts after its port was last seen in use."""
+    return {"hold_ttl": db.get_hold_ttl(get_conn())}
+
+
+@app.put("/hold-ttl")
+def set_hold_ttl(req: HoldTtlRequest):
+    """Update the hold TTL (seconds)."""
+    if req.hold_ttl <= 0:
+        raise HTTPException(status_code=400, detail="hold_ttl must be positive")
+    db.set_hold_ttl(get_conn(), req.hold_ttl)
+    return {"hold_ttl": req.hold_ttl}
 
 
 @app.get("/health")

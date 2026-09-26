@@ -12,6 +12,9 @@ Local port assignment manager for development services. Prevents port collisions
 ```bash
 pip install port-authority
 
+# With process names in scan results (installs psutil)
+pip install port-authority[scan]
+
 # Or with dev dependencies
 pip install port-authority[dev]
 ```
@@ -39,6 +42,10 @@ pa release temp-test
 
 # Check next available port
 pa next
+
+# Find ports already in use by other tools and hold them
+pa scan
+pa holds
 ```
 
 ## How It Works
@@ -47,6 +54,32 @@ pa next
 - **Ephemeral assignments**: Temporary ports for testing. Release when done.
 - **Idempotent**: Requesting a port for an already-assigned project returns the existing assignment.
 - **Offline mode**: CLI falls back to direct SQLite access when the server is not running.
+- **Holds on in-use ports**: port-authority won't hand out a port that something else is already listening on (see below).
+
+### Holds: ports in use by other tools
+
+Not every tool asks port-authority for a port. Some hardcode one, and some pick
+different ports from run to run. To stay authoritative, port-authority checks
+what's actually in use and places a temporary **hold** on any in-use port that
+has no assignment:
+
+- **On every allocation**, each candidate port is probed before it's handed out.
+  If it's busy, it's held and the next port is tried. A `preferred_port` that is
+  busy is rejected with `409` and the owning process named where possible.
+- **`pa scan`** (or `POST /scan`) checks the whole managed range at once.
+- **`pa serve`** rescans in the background every 60 seconds
+  (`--scan-interval N` to change, `0` to disable).
+
+Holds are temporary. Each time a scan sees the port still in use, the hold is
+refreshed. It expires once the port has not been seen in use for the hold TTL
+(default 1 hour, `PUT /hold-ttl`). This rides out tools that start and stop
+without leaving ports locked forever. An explicit `preferred_port` request for a
+held port that has since gone free claims the port and drops the hold.
+
+A port that is in use by its own assigned project shows as `assigned` in scan
+results and is not held. Process names need `psutil` (`pip install
+port-authority[scan]`). Without it, ports are detected by test-binding them and
+show as "unknown process".
 
 ## API
 
@@ -59,7 +92,12 @@ Server runs on `http://127.0.0.1:7600` by default.
 | GET | `/assignments` | List all assignments |
 | GET | `/lookup/{project}` | Look up a project's port |
 | GET | `/port/{port}` | Check what's on a port |
-| GET | `/next-available` | Peek at next free port |
+| GET | `/next-available` | Peek at next free port (holds any busy ports it skips) |
+| POST | `/scan` | Scan the range and hold in-use, unassigned ports |
+| GET | `/holds` | List active holds |
+| DELETE | `/holds/{port}` | Drop a hold (returns on next scan if still in use) |
+| GET | `/hold-ttl` | Get hold TTL in seconds |
+| PUT | `/hold-ttl` | Update hold TTL |
 | GET | `/range` | Get configured port range |
 | PUT | `/range` | Update port range |
 
@@ -235,7 +273,7 @@ Response (200):
 ```
 
 Error responses:
-- `409` - preferred port conflicts with an existing assignment
+- `409` - preferred port conflicts with an existing assignment or is in use by another process
 - `503` - no ports available in the configured range
 
 **GET /lookup/{project}** - check a project's port without side effects
