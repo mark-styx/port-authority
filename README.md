@@ -160,14 +160,19 @@ import httpx
 
 PA_URL = "http://127.0.0.1:7600"
 
+
 def get_port(project: str, lan_exposed: bool = False) -> int:
     """Request a port from port-authority."""
-    resp = httpx.post(f"{PA_URL}/assign", json={
-        "project": project,
-        "lan_exposed": lan_exposed,
-    })
+    resp = httpx.post(
+        f"{PA_URL}/assign",
+        json={
+            "project": project,
+            "lan_exposed": lan_exposed,
+        },
+    )
     resp.raise_for_status()
     return resp.json()["port"]
+
 
 # Usage
 port = get_port("my-web-app", lan_exposed=True)
@@ -179,11 +184,14 @@ If you want CLI fallback when the server is not running:
 ```python
 import subprocess, re
 
+
 def get_port_cli(project: str) -> int:
     """Fallback: use the pa CLI directly."""
     result = subprocess.run(
         ["pa", "assign", project],
-        capture_output=True, text=True, check=True,
+        capture_output=True,
+        text=True,
+        check=True,
     )
     match = re.search(r"port (\d+)", result.stdout)
     return int(match.group(1))
